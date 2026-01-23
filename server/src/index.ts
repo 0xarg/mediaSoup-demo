@@ -17,6 +17,6 @@ const io = new Server(server, {
 });
 
 // Create a namespace "/mediasoup" for mediasoup-related socket events
-const peers = io.of("/mediasoup");
+export const peers = io.of("/mediasoup");
 
 // After this we init Worker and Router
