@@ -1,21 +1,17 @@
 "use client";
 
-import { startWebRTC } from "@/lib/webrtc";
+import { joinRoom } from "@/lib/webrtc";
 
-export default function Home() {
+// import { joinRoom } from "@/lib/webrtc";
+
+export default function Page() {
   return (
-    <main>
-      <button onClick={startWebRTC}>Start Camera</button>
+    <div>
+      <button onClick={() => joinRoom()}>Create Room</button>
+      <button onClick={() => joinRoom(prompt("Room ID")!)}>Join Room</button>
 
-      <div>
-        <h3>Local</h3>
-        <video id="local" autoPlay playsInline />
-      </div>
-
-      <div>
-        <h3>Remote (Loopback)</h3>
-        <video id="remote" autoPlay playsInline />
-      </div>
-    </main>
+      <video id="local" autoPlay playsInline />
+      <div id="remotes" />
+    </div>
   );
 }

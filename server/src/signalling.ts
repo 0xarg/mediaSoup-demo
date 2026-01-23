@@ -1,29 +1,48 @@
 import type { Socket } from "socket.io";
-import { getRouter, createWebRtcTransport } from "./mediasoup";
-import type { Producer, Consumer } from "mediasoup/types";
+import { createRouter, createWebRtcTransport } from "./mediasoup";
+import type { Router, Producer } from "mediasoup/types";
 
-/**
- * Global SFU state
- */
-const producers = new Map<string, Producer[]>();
+type Peer = {
+  socket: Socket;
+  sendTransport?: any;
+  recvTransport?: any;
+  producers: Producer[];
+};
+
+type Room = {
+  router: Router;
+  peers: Map<string, Peer>;
+};
+
+const rooms = new Map<string, Room>();
+
+function randomRoomId() {
+  return Math.random().toString(36).slice(2, 8);
+}
 
 export function registerSocketHandlers(socket: Socket) {
-  producers.set(socket.id, []);
+  let room: Room | null = null;
 
-  socket.on("disconnect", () => {
-    const peerProducers = producers.get(socket.id) || [];
-    peerProducers.forEach((p) => p.close());
-    producers.delete(socket.id);
+  socket.on("create-room", async (cb) => {
+    const roomId = randomRoomId();
+    const router = await createRouter();
+
+    room = { router, peers: new Map() };
+    rooms.set(roomId, room);
+
+    room.peers.set(socket.id, { socket, producers: [] });
+    cb({ roomId });
   });
 
-  socket.on("getRtpCapabilities", (cb) => {
-    cb(getRouter().rtpCapabilities);
+  socket.on("join-room", ({ roomId }, cb) => {
+    room = rooms.get(roomId)!;
+    room.peers.set(socket.id, { socket, producers: [] });
+    cb({ rtpCapabilities: room.router.rtpCapabilities });
   });
 
-  // SEND TRANSPORT
-  socket.on("createTransport", async (cb) => {
-    const transport = await createWebRtcTransport();
-    socket.data.sendTransport = transport;
+  socket.on("create-send-transport", async (cb) => {
+    const transport = await createWebRtcTransport(room!.router);
+    room!.peers.get(socket.id)!.sendTransport = transport;
 
     cb({
       id: transport.id,
@@ -33,31 +52,27 @@ export function registerSocketHandlers(socket: Socket) {
     });
   });
 
-  socket.on("connectTransport", async ({ dtlsParameters }) => {
-    await socket.data.sendTransport.connect({ dtlsParameters });
+  socket.on("connect-send-transport", async ({ dtlsParameters }) => {
+    await room!.peers.get(socket.id)!.sendTransport.connect({ dtlsParameters });
   });
 
-  // PRODUCE
   socket.on("produce", async ({ kind, rtpParameters }, cb) => {
-    const producer = await socket.data.sendTransport.produce({
-      kind,
-      rtpParameters,
-    });
+    const peer = room!.peers.get(socket.id)!;
+    const producer = await peer.sendTransport.produce({ kind, rtpParameters });
+    peer.producers.push(producer);
 
-    producers.get(socket.id)!.push(producer);
-
-    // notify other peers
-    socket.broadcast.emit("new-producer", {
-      producerId: producer.id,
+    room!.peers.forEach((p, id) => {
+      if (id !== socket.id) {
+        p.socket.emit("new-producer", { producerId: producer.id });
+      }
     });
 
     cb({ id: producer.id });
   });
 
-  // RECV TRANSPORT
-  socket.on("createRecvTransport", async (cb) => {
-    const transport = await createWebRtcTransport();
-    socket.data.recvTransport = transport;
+  socket.on("create-recv-transport", async (cb) => {
+    const transport = await createWebRtcTransport(room!.router);
+    room!.peers.get(socket.id)!.recvTransport = transport;
 
     cb({
       id: transport.id,
@@ -67,24 +82,12 @@ export function registerSocketHandlers(socket: Socket) {
     });
   });
 
-  socket.on("connectRecvTransport", async ({ dtlsParameters }) => {
-    await socket.data.recvTransport.connect({ dtlsParameters });
+  socket.on("connect-recv-transport", async ({ dtlsParameters }) => {
+    await room!.peers.get(socket.id)!.recvTransport.connect({ dtlsParameters });
   });
 
-  // CONSUME
   socket.on("consume", async ({ producerId, rtpCapabilities }, cb) => {
-    const router = getRouter();
-
-    if (
-      !router.canConsume({
-        producerId,
-        rtpCapabilities,
-      })
-    ) {
-      throw new Error("Cannot consume");
-    }
-
-    const consumer: Consumer = await socket.data.recvTransport.consume({
+    const consumer = await room!.peers.get(socket.id)!.recvTransport.consume({
       producerId,
       rtpCapabilities,
       paused: false,
@@ -96,18 +99,5 @@ export function registerSocketHandlers(socket: Socket) {
       kind: consumer.kind,
       rtpParameters: consumer.rtpParameters,
     });
-  });
-
-  // SEND EXISTING PRODUCERS TO NEW PEER
-  socket.on("getExistingProducers", (cb) => {
-    const list: string[] = [];
-
-    producers.forEach((peerProducers, peerId) => {
-      if (peerId !== socket.id) {
-        peerProducers.forEach((p) => list.push(p.id));
-      }
-    });
-
-    cb(list);
   });
 }

@@ -1,31 +1,22 @@
-// src/index.ts
 import express from "express";
 import http from "http";
+import cors from "cors";
+import mediasoup from "mediasoup";
 import { Server } from "socket.io";
-import { initMediasoup } from "./mediasoup";
-import { registerSocketHandlers } from "./signalling";
 
-async function startServer() {
-  // 1. INIT MEDIASOUP (ONCE)
-  await initMediasoup();
+const app = express();
+const port = 4000;
+const server = http.createServer(app);
 
-  // 2. CREATE HTTP SERVER
-  const app = express();
-  const server = http.createServer(app);
+// Initialize a Socket.IO server for WebSocket connections.
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    credentials: true,
+  },
+});
 
-  // 3. SOCKET.IO
-  const io = new Server(server, {
-    cors: { origin: "*" },
-  });
+// Create a namespace "/mediasoup" for mediasoup-related socket events
+const peers = io.of("/mediasoup");
 
-  io.on("connection", (socket) => {
-    registerSocketHandlers(socket);
-  });
-
-  // 4. LISTEN
-  server.listen(4000, () => {
-    console.log("Server running on port 4000");
-  });
-}
-
-startServer().catch(console.error);
+// After this we init Worker and Router
