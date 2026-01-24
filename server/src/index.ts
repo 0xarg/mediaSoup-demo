@@ -20,3 +20,14 @@ const io = new Server(server, {
 export const peers = io.of("/mediasoup");
 
 // After this we init Worker and Router
+const createWebRtcTransport = async (
+  callback: (arg0: {
+    params: mediasoup.types.WebRtcTransportOptions | { error: unknown };
+  }) => void,
+) => {
+  // ... WebRTC transport creation, configuration, and event handling ...
+};
+
+server.listen(port, () => {
+  console.log(`Server running at http://localhost:${port}`);
+});
