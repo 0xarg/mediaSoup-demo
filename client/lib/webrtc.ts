@@ -1,16 +1,10 @@
 import { Device } from "mediasoup-client";
 import { io } from "socket.io-client";
 
-export async function joinRoom(roomId?: string) {
-  const socket = io("http://192.168.31.209:4000");
+let remoteCounter = 1;
 
-  if (!roomId) {
-    const res = await new Promise<any>((res) =>
-      socket.emit("create-room", res),
-    );
-    roomId = res.roomId;
-    alert("Room ID: " + roomId);
-  }
+export async function start(roomId: string) {
+  const socket = io("http://192.168.31.209:4000");
 
   const { rtpCapabilities } = await new Promise<any>((res) =>
     socket.emit("join-room", { roomId }, res),
@@ -22,6 +16,7 @@ export async function joinRoom(roomId?: string) {
   const stream = await navigator.mediaDevices.getUserMedia({ video: true });
   (document.getElementById("local") as HTMLVideoElement).srcObject = stream;
 
+  // SEND
   const sendParams = await new Promise<any>((res) =>
     socket.emit("create-send-transport", res),
   );
@@ -39,6 +34,7 @@ export async function joinRoom(roomId?: string) {
 
   await sendTransport.produce({ track: stream.getVideoTracks()[0] });
 
+  // RECV
   const recvParams = await new Promise<any>((res) =>
     socket.emit("create-recv-transport", res),
   );
@@ -60,13 +56,19 @@ export async function joinRoom(roomId?: string) {
     );
 
     const consumer = await recvTransport.consume(params);
-    const stream = new MediaStream([consumer.track]);
 
     const video = document.createElement("video");
     video.autoplay = true;
     video.playsInline = true;
-    video.srcObject = stream;
+    video.srcObject = new MediaStream([consumer.track]);
 
-    document.getElementById("remotes")!.appendChild(video);
+    const label = document.createElement("div");
+    label.innerText = `Remote Camera #${remoteCounter++}`;
+
+    const wrapper = document.createElement("div");
+    wrapper.appendChild(label);
+    wrapper.appendChild(video);
+
+    document.getElementById("remotes")!.appendChild(wrapper);
   });
 }
